@@ -118,44 +118,74 @@ class anal_funcs(object):
         HRR = pd.DataFrame(temp_ls, columns=['HRR'], index=df.index)
         return HRR
     
-    ## 연환산 변동성
-    def cal_STD(self, df, ticker, method ='g', unit = 'daily'):
+    ## 변동성(표준편차)
+    def cal_standard_risk(self, df, ticker, method ='g'):
+        '''
+        **standard_risk 산출 함수**
+        - 산술수익률:a
+        - 기하수익률:g
+        '''
+        df = df.resample('M').last()[:-1].copy()
+        if method == 'g':
+            target_ls = (np.log(df[ticker]/df[ticker].shift(1))-1)*1e2
+        elif method == 'a':
+            target_ls = ((df[ticker]-df[ticker].shift(1))/df[ticker].shift(1))*1e2
+        standard_risk = target_ls.std()
+        return standard_risk
+    
+    ## 변동성(하방위험)
+    def cal_drawdown_risk(self, df, ticker, method ='g'):
+        '''
+        **drawdown_risk(연평균하방리스크) 산출 함수**
+        - 산술수익률:a
+        - 기하수익률:g
+        '''
+        df = df.resample('M').last()[:-1].copy()
+        if method == 'g':
+            target_ls = (np.log(df[ticker]/df[ticker].shift(1)))*1e2
+        elif method == 'a':
+            target_ls = ((df[ticker]-df[ticker].shift(1))/df[ticker].shift(1))*1e2
+        drawdown_risk = target_ls[target_ls<0].std()
+        return drawdown_risk
+
+    ## 변동성(잔차위험)
+    def cal_residual_risk(self, df, ticker, market, method ='g'):
         '''
         **YDD(연평균하방리스크) 산출 함수**
         - 산술수익률:a
         - 기하수익률:g
         '''
+        df = df.resample('M').last()[:-1].copy()
         if method == 'g':
-            target_ls = np.log(df[ticker]/df[ticker].shift(1))
+            target_ls = (np.log(df[ticker]/df[ticker].shift(1)))*1e2
+            market_ls = (np.log(df[market]/df[market].shift(1)))*1e2
         elif method == 'a':
-            target_ls = (df[ticker]-df[ticker].shift(1))/df[ticker].shift(1)
-        if unit == 'daily':
-            YDD = (target_ls.std()*250)**0.5
-        elif unit == 'monthly':
-            YDD = (target_ls.std()*12)**0.5
-        return YDD
-    
-    ## 연환산 하방 변동성
-    def cal_YDD(self, df, ticker, method ='g', unit = 'daily'):
+            target_ls = ((df[ticker]-df[ticker].shift(1))/df[ticker].shift(1))*1e2
+            market_ls = ((df[market]-df[market].shift(1))/df[market].shift(1))*1e2
+        residual_risk = (target_ls-market_ls).std()
+        return residual_risk
+
+    ## 변동성(베타)
+    def cal_beta_risk(self, df, ticker, market, method ='g'):
         '''
         **YDD(연평균하방리스크) 산출 함수**
         - 산술수익률:a
         - 기하수익률:g
         '''
+        df = df.resample('M').last()[:-1].copy()
         if method == 'g':
-            target_ls = np.log(df[ticker]/df[ticker].shift(1))
+            target_ls = (np.log(df[ticker]/df[ticker].shift(1)))*1e2
+            market_ls = (np.log(df[market]/df[market].shift(1)))*1e2
         elif method == 'a':
-            target_ls = (df[ticker]-df[ticker].shift(1))/df[ticker].shift(1)
-        if unit == 'daily':
-            YDD = (((((target_ls[target_ls<0])**2).sum()/(len(target_ls)-1))*250)**0.5)
-        elif unit == 'monthly':
-            YDD = (((((target_ls[target_ls<0])**2).sum()/(len(target_ls)-1))*12)**0.5)
-        return YDD
-    
+            target_ls = ((df[ticker]-df[ticker].shift(1))/df[ticker].shift(1))*1e2
+            market_ls = ((df[market]-df[market].shift(1))/df[market].shift(1))*1e2
+        beta = np.array(pd.concat([target_ls, market_ls], axis=1).cov())[0][1]/target_ls.var()
+        return beta
+
     ## 연환산 수익률 산출
     def cal_YRR(self, df, ticker, method ='g', unit = 'daily'):
         '''
-        **YDD(연평균수익률) 산출 함수**
+        **Y(연평균수익률) 산출 함수**
         - 산술수익률:a
         - 기하수익률:g
         '''
@@ -167,7 +197,7 @@ class anal_funcs(object):
             yrr = (1+total_err)**(250/len(df))-1
         elif unit == 'monthly':
             yrr = (1+total_err)**(12/len(df))-1
-        return yrr
+        return yrr*1e2
     
     ## 연수익 레포트 -> get_YTDs에 종속
     def get_YTD_report(self, df, method='g'):
@@ -209,25 +239,40 @@ class anal_funcs(object):
             MDD_df['MDD(%)'] = (MDD_df['MDD(%)']*100).round(2)
         return MDD_df, HRR_df
 
-    ## 성과 평가 레포트 출력 -> cal_YRR / cal_STD / cal_YDD에 종속
-    def get_Vol_report(self, df, method='g', unit = 'daily'):
+
+    ## 성과 평가 레포트 출력 -> cal_YRR / cal_standard_risk / cal_drawdown_risk에 종속
+    def get_Vol_report(self, df, method='g', unit = 'daily', rf = 2):
         '''
         **STRT(sortino ratio) 도시 함수**
         - 산술수익률:a
         - 기하수익률:g
+        - market은 가장 앞 컬럼
         '''
+        market = df.columns[0]
+        YRR_market = self.cal_YRR(df, market, method, unit)
+
         temp_ls = []
-        for i in df.columns:
-            if (df[i].dtype == float)|(df[i].dtype == int):
-                YRR = self.cal_YRR(df, i, method, unit)*100
-                STD = self.cal_STD(df, i, method, unit)*100
-                SHRP = YRR/STD ##무위험 수익률 무시
-                YDD = self.cal_YDD(df, i, method, unit)*100
-                SRTR = YRR/YDD ##무위험 수익률 무시
-                temp_ls.append([i, YRR, STD, SHRP, YDD, SRTR])
-                report = pd.DataFrame(temp_ls, columns=['Ticker', 'Return', 'Volatility', 'Sharpe Ratio', 'Volatility(Down)', 'Sortino Ratio']).set_index('Ticker')
+        for col in df.columns:
+            if (df[col].dtype == float)|(df[col].dtype == int):
+                YRR_port = self.cal_YRR(df, col, method, unit)
+                standard_risk_port = self.cal_standard_risk(df, col, method)
+                drawdown_risk_port = self.cal_drawdown_risk(df, col, method)
+                residual_risk_port = self.cal_residual_risk(df, col, market, method)
+                beta_risk_port = self.cal_beta_risk(df, col, market, method)
+
+                sharp_ratio = (YRR_port - rf)/standard_risk_port
+                r2v_ratio = (YRR_port - rf)/beta_risk_port
+                jensen_alpha = (YRR_port - rf) - beta_risk_port*(YRR_market - rf)
+                info_ratio = (YRR_port - YRR_market)/residual_risk_port
+                sortino_ratio = (YRR_port - rf)/drawdown_risk_port
+
+                temp_ls.append([col, YRR_port, standard_risk_port, drawdown_risk_port, residual_risk_port, beta_risk_port, 
+                                sharp_ratio, sortino_ratio, r2v_ratio, jensen_alpha, info_ratio])
+                report = pd.DataFrame(temp_ls, columns=['Ticker', 'Return', 'Volatility', 'Volatility(Down)', 'Residual', 'Beta',
+                                                        'Sharpe_Ratio', 'Sortino_Ratio', 'Trainer_Ratio', 'Jensen_Alpha', 'Info_Ratio']).set_index('Ticker')
         return report.round(2)
     
+
     ## 투자시작 시점을 평률화한 리포트
     def get_Vol_report_E(self, df, method='g', unit = 'daily'):
         ## (len(df)/10)개 데이터로 분할
@@ -379,6 +424,7 @@ class data_funcs(object):
         ema_ts = pd.Series(temp_ls, index=ts.index)
 
         return ema_ts
-    
+
+## 호출
 anal_funcs = anal_funcs()
 data_funcs = data_funcs()
