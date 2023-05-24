@@ -355,7 +355,7 @@ class data_funcs(object):
     def get_df(self, ticker: any):
         '''야후 파이낸스에서 자산가격 데이터를 불러옴'''
         ## get_merged_df()에 활용
-        df = yf.download(ticker, ignore_tz = True)
+        df = yf.download(ticker, ignore_tz = True, auto_adjust = True)
         return df
 
     ## 데이터 병합
